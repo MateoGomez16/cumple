@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>🎂 Feliz Cumpleaños Nicoll</title>
+<style>
+  :root{ --bg1:#0f1724; --bg2:#10213a; --accent1:#ff8aa1; --accent2:#ffd28a; }
+  html,body{ height:100%; margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,Arial; background:linear-gradient(180deg,var(--bg1),var(--bg2)); color:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden;}
+  .ui{ position:absolute; z-index:30; top:20px; left:20px; display:flex; gap:12px; align-items:center; pointer-events:auto;}
+  .title{ font-size:clamp(18px,2.5vw,26px); font-weight:700; background:linear-gradient(90deg,var(--accent1),var(--accent2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  button{ background:linear-gradient(90deg,#7b61ff,#ff6a88); border:none; color:#fff; padding:8px 12px; border-radius:10px; cursor:pointer; box-shadow:0 8px 30px rgba(123,97,255,0.14); }
+  button.secondary{ background:transparent; border:1px solid rgba(255,255,255,0.06); color:#dfe7ff; box-shadow:none; }
+  #overlay{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg,rgba(2,6,23,0.6),rgba(2,8,23,0.9)); z-index:60; pointer-events:none; opacity:0; transition:opacity .45s; }
+  #overlay.show{ opacity:1; pointer-events:auto; }
+  .card{ background:linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02)); border-radius:18px; padding:22px 28px; max-width:90vw; width:min(720px,88vw); text-align:center; border:1px solid rgba(255,255,255,0.03); }
+  .card h2{ margin:0 0 8px 0; font-size:clamp(20px,3vw,34px); }
+  #stage{ position:absolute; inset:0; z-index:10; pointer-events:none; }
+  @media(max-width:520px){ .ui{ left:12px; top:12px; } .card{ padding:14px 16px; } }
+</style>
+</head>
+<body>
+  <div class="ui" role="region" aria-label="controles de felicitación">
+    <div class="title">🎉 Feliz Cumpleaños Nicoll</div>
+    <button id="startBtn">Ver sorpresa</button>
+    <button id="replayBtn" class="secondary">Repetir</button>
+  </div>
+
+  <div id="stage"><canvas id="canvas"></canvas></div>
+
+  <div id="overlay" aria-hidden="true">
+    <div class="card" role="dialog" aria-live="polite">
+      <h2>🎊 ¡Que todos tus sueños se hagan realidad, Nicoll! 🎊</h2>
+      <p>Que la vida te regale momentos brillantes, risas infinitas y aventuras memorables. ¡Feliz cumpleaños!</p>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:10px;">
+        <button id="closeOverlay">Cerrar</button>
+        <button id="downloadCard" class="secondary">Descargar (PNG)</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { alpha:true });
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  let W=0, H=0, cx=0, cy=0;
+
+  const startBtn = document.getElementById('startBtn');
+  const replayBtn = document.getElementById('replayBtn');
+  const overlay = document.getElementById('overlay');
+  const closeOverlay = document.getElementById('closeOverlay');
+  const downloadCard = document.getElementById('downloadCard');
+
+  function resize(){
+    const rect = canvas.parentElement.getBoundingClientRect();
+    W = Math.max(320, rect.width);
+    H = Math.max(320, rect.height);
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    cx = W/2; cy = H/2;
+  }
+  window.addEventListener('resize', resize);
+
+  // helpers
+  function rand(min,max){ return Math.random()*(max-min)+min; }
+  function hexToRgb(hex){ const h=hex.replace('#',''); const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+  function lighten(hex,amt){ const [r,g,b]=hexToRgb(hex); return `rgb(${Math.min(255,Math.round(r+255*amt))},${Math.min(255,Math.round(g+255*amt))},${Math.min(255,Math.round(b+255*amt))})`; }
+  function darken(hex,amt){ const [r,g,b]=hexToRgb(hex); return `rgb(${Math.max(0,Math.round(r-255*amt))},${Math.max(0,Math.round(g-255*amt))},${Math.max(0,Math.round(b-255*amt))})`; }
+
+  function roundRectPath(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    r = Math.min(r, w/2, h/2);
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+
+  // Layer (cake)
+  class Layer {
+    constructor(w,h,color){
+      this.w=w; this.h=h; this.color=color;
+      this.y = - rand(60,240);
+      this.vy = 0;
+      this.target = 0; // center Y
+      this.settled = false;
+      this.rotation = (Math.random()-0.5)*0.02;
+    }
+    step(dt){
+      if(this.settled) return;
+      this.vy += 1500 * dt;
+      this.y += this.vy * dt;
+      if(this.y >= this.target){
+        this.y = this.target;
+        this.vy = -this.vy * 0.45;
+        if(Math.abs(this.vy) < 110){ this.vy = 0; this.settled = true; }
+      }
+    }
+    draw(ctx){
+      ctx.save();
+      ctx.translate(cx, this.y);
+      ctx.rotate(this.rotation);
+      ctx.shadowColor = 'rgba(0,0,0,0.35)';
+      ctx.shadowBlur = 18;
+      roundRectPath(ctx, -this.w/2, -this.h/2, this.w, this.h, Math.min(20, this.h*0.22));
+      const g = ctx.createLinearGradient(-this.w/2, -this.h/2, -this.w/2, this.h/2);
+      g.addColorStop(0, lighten(this.color,0.06));
+      g.addColorStop(1, darken(this.color,0.06));
+      ctx.fillStyle = g;
+      ctx.fill();
+      drawIcing(ctx, -this.w/2, -this.h/2, this.w, this.h);
+      ctx.restore();
+    }
+  }
+
+  // Candle with falling physics and local flame coords
+  class Candle {
+    constructor(x, baseY, scale){
+      this.x = x;              // absolute x
+      this.baseTargetY = baseY; // absolute Y where bottom of candle should settle
+      this.scale = scale;
+      this.bodyH = 36 * this.scale;
+      this.y = this.baseTargetY - rand(180, 300); // start off-screen above (when created)
+      this.vy = 0;
+      this.dropping = false;
+      this.settled = false;
+      this.ignited = false;
+      this.flames = [];
+    }
+    startDrop(){ this.dropping = true; this.settled = false; this.vy = 0; }
+    step(dt){
+      if(this.dropping && !this.settled){
+        this.vy += 1500 * dt;
+        this.y += this.vy * dt;
+        if(this.y >= this.baseTargetY){
+          this.y = this.baseTargetY;
+          this.vy = -this.vy * 0.45;
+          if(Math.abs(this.vy) < 100){
+            this.vy = 0;
+            this.settled = true;
+            this.dropping = false;
+            this.ignited = true; // ignite on settle
+          }
+        }
+      }
+      // flames
+      if(this.ignited){
+        if(Math.random() < 0.55) {
+          const lx = (Math.random()-0.5) * 6;
+          const ly = - (this.bodyH + 4);
+          this.flames.push(new FlameParticle(lx, ly));
+        }
+      }
+      for(let i=this.flames.length-1;i>=0;i--){
+        this.flames[i].step(dt);
+        if(this.flames[i].life <= 0) this.flames.splice(i,1);
+      }
+    }
+    draw(ctx){
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      const bw = 12 * this.scale;
+      const bh = this.bodyH * (0.9);
+      roundRectPath(ctx, -bw/2, -bh, bw, bh, 3*this.scale);
+      ctx.fillStyle = '#fffdf6';
+      ctx.fill();
+      ctx.lineWidth = 1*this.scale;
+      ctx.strokeStyle = 'rgba(0,0,0,0.04)';
+      ctx.stroke();
+      ctx.fillStyle = '#3b2b2b';
+      ctx.fillRect(-1*this.scale, -bh-2*this.scale, 2*this.scale, 4*this.scale);
+      if(this.flames.length){
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for(const f of this.flames) f.draw(ctx);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+  }
+
+  // FlameParticle local coords (drawn inside candle translate)
+  class FlameParticle {
+    constructor(x,y){
+      this.x = x; this.y = y;
+      this.vx = (Math.random()-0.5) * 18;
+      this.vy = - (40 + Math.random()*40);
+      this.size = 5 + Math.random()*8;
+      this.life = 0.9 + Math.random()*0.8;
+      this.total = this.life;
+    }
+    step(dt){
+      this.vy += 160 * dt;
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      this.life -= dt;
+    }
+    draw(ctx){
+      const t = Math.max(0, this.life / this.total);
+      const alpha = Math.min(1, t*1.2);
+      const s = this.size * (0.8 + (1 - t) * 0.8);
+      const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, s*3);
+      g.addColorStop(0, `rgba(255,255,200,${alpha})`);
+      g.addColorStop(0.25, `rgba(255,170,80,${alpha*0.95})`);
+      g.addColorStop(0.7, `rgba(200,80,30,${alpha*0.45})`);
+      g.addColorStop(1, `rgba(120,40,20,${alpha*0.05})`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, s, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // Confetto & Spark
+  class Confetto { constructor(x,y,c){ this.x=x; this.y=y; this.vx=(Math.random()-0.5)*200; this.vy=- (rand(60,180)); this.color=c; this.size=6+Math.random()*8; this.life=2.2+Math.random()*1.6; this.rot=Math.random()*Math.PI*2; this.spin=(Math.random()-0.5)*10;} step(dt){ this.vy += 300*dt; this.x += this.vx*dt; this.y += this.vy*dt; this.rot += this.spin*dt; this.life -= dt;} draw(ctx){ ctx.save(); ctx.translate(this.x,this.y); ctx.rotate(this.rot); ctx.fillStyle=this.color; ctx.fillRect(-this.size/2,-this.size/2,this.size,this.size*0.6); ctx.restore(); } }
+  class Spark { constructor(x,y){ this.x=x; this.y=y; const a=Math.random()*Math.PI*2; const s=80+Math.random()*360; this.vx=Math.cos(a)*s; this.vy=Math.sin(a)*s; this.life=0.9+Math.random()*1.2; this.total=this.life; this.color=`hsl(${Math.random()*360},95%,60%)`; this.size=2+Math.random()*2;} step(dt){ this.vy += 140*dt; this.x += this.vx*dt; this.y += this.vy*dt; this.vx *= 0.99; this.vy *= 0.99; this.life -= dt;} draw(ctx){ const t = Math.max(0,this.life/this.total); ctx.globalAlpha = t; ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x,this.y,this.size*(0.6+t),0,Math.PI*2); ctx.fill(); ctx.globalAlpha = 1; } }
+
+  // scene arrays
+  let layers = [], candles = [], confetti = [], sparks = [];
+  // candlePositions stores x & baseY so we create Candle objects only when sequence starts
+  let candlePositions = [];
+  let last = 0, animId = null;
+  let candlesSequenceStarted = false;
+
+  function buildScene(){
+    layers = []; candles = []; confetti = []; sparks = []; candlePositions = [];
+    candlesSequenceStarted = false;
+    const cakeMaxW = Math.min(W*0.62, 480);
+    const baseH = Math.min(H*0.12, 98);
+    const sizes = [
+      {w: cakeMaxW, h: baseH, color:'#ff9ea3'},
+      {w: cakeMaxW*0.76, h: baseH*0.86, color:'#ffd6a5'},
+      {w: cakeMaxW*0.52, h: baseH*0.78, color:'#c9ffda'}
+    ];
+    const cakeBottom = cy + Math.min(H*0.18, 160);
+    let acc = 0;
+    for(let i=0;i<sizes.length;i++){
+      const s = sizes[i];
+      acc += s.h;
+      const centerY = cakeBottom - (acc - s.h/2);
+      const L = new Layer(s.w, s.h, s.color);
+      L.target = centerY;
+      layers.push(L);
+    }
+    // compute candle positions on top of smallest layer but DO NOT create Candle objects yet
+    const top = layers[layers.length-1];
+    const topCenter = top.target;
+    const topTopY = topCenter - top.h/2; // top surface absolute Y
+    const candleCount = Math.max(3, Math.min(7, Math.round(top.w / 50)));
+    const spacing = top.w / (candleCount + 1);
+    for(let i=0;i<candleCount;i++){
+      const x = cx - top.w/2 + spacing*(i+1);
+      candlePositions.push({x, baseY: topTopY});
+    }
+  }
+
+  // create a candle object from position and start its drop
+  function createAndDropCandle(idx){
+    if(idx < 0 || idx >= candlePositions.length) return;
+    const pos = candlePositions[idx];
+    const c = new Candle(pos.x, pos.baseY, Math.min(1.0, (layers[layers.length-1].h / 50)));
+    candles.push(c);
+    c.startDrop();
+    // poll for settle then ignite and proceed to next candle
+    const check = setInterval(()=>{
+      if(c.settled){
+        clearInterval(check);
+        c.ignited = true; // ensure ignited
+        // small pause then next candle
+        setTimeout(()=> {
+          if(idx + 1 < candlePositions.length) createAndDropCandle(idx + 1);
+          else {
+            // all candles created & ignited -> allow final celebration
+            setTimeout(()=> showFinal(), 700);
+          }
+        }, 320);
+      }
+    }, 60);
+  }
+
+  function step(dt){
+    let allSettled = true;
+    for(let i=0;i<layers.length;i++){
+      if(i===0 || layers[i-1].settled) layers[i].step(dt);
+      if(!layers[i].settled) allSettled = false;
+    }
+
+    // start candles sequence only once after all layers settled
+    if(allSettled && candlePositions.length && !candlesSequenceStarted){
+      candlesSequenceStarted = true;
+      // start first candle after tiny delay
+      setTimeout(()=> createAndDropCandle(0), 380);
+    }
+
+    // step candles
+    for(const c of candles) c.step(dt);
+
+    // update confetti/sparks
+    for(let i=confetti.length-1;i>=0;i--){ confetti[i].step(dt); if(confetti[i].life<=0) confetti.splice(i,1); }
+    for(let i=sparks.length-1;i>=0;i--){ sparks[i].step(dt); if(sparks[i].life<=0) sparks.splice(i,1); }
+  }
+
+  function render(){
+    ctx.clearRect(0,0,W,H);
+    // background subtle
+    const bg = ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'rgba(20,28,44,0.06)');
+    bg.addColorStop(1,'rgba(4,8,18,0.06)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0,0,W,H);
+
+    // stage ellipse
+    ctx.save();
+    const ellipseW = Math.min(W*0.6,560), ellipseH = Math.min(H*0.12,120);
+    const epi = ctx.createRadialGradient(cx, cy + Math.min(H*0.18,140), 10, cx, cy + Math.min(H*0.18,140), ellipseW);
+    epi.addColorStop(0, 'rgba(255,220,200,0.06)');
+    epi.addColorStop(1, 'rgba(0,0,0,0.0)');
+    ctx.fillStyle = epi;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + Math.min(H*0.18,140), ellipseW/2, ellipseH/2, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    // draw layers bottom -> top
+    for(const L of layers) L.draw(ctx);
+    // draw candles (only those created)
+    for(const c of candles) c.draw(ctx);
+    // confetti and sparks
+    for(const cf of confetti) cf.draw(ctx);
+    for(const sp of sparks) sp.draw(ctx);
+  }
+
+  function loop(now){
+    if(!last) last = now;
+    const dt = Math.min(0.04, (now - last)/1000);
+    last = now;
+    step(dt);
+    render();
+    animId = requestAnimationFrame(loop);
+  }
+
+  function showFinal(){
+    for(let i=0;i<48;i++) confetti.push(new Confetto(cx, cy-20, randomColor()));
+    let bursts = 0;
+    const iv = setInterval(()=> { burstFireworks(rand(100,W-100), rand(100, H*0.5)); bursts++; if(bursts>=6) clearInterval(iv); }, 700);
+    setTimeout(()=> { overlay.classList.add('show'); overlay.setAttribute('aria-hidden','false'); }, 900);
+  }
+  function burstFireworks(x,y){ for(let i=0;i<80;i++) sparks.push(new Spark(x + rand(-30,30), y + rand(-30,30))); }
+  function randomColor(){ const pal=['#FF6B6B','#FFD166','#F9C74F','#6BCB77','#4D96FF','#AC8CFF','#FF8AC9']; return pal[Math.floor(Math.random()*pal.length)]; }
+
+  // controls
+  function startSequence(){
+    overlay.classList.remove('show'); overlay.setAttribute('aria-hidden','true');
+    buildScene();
+    last = performance.now();
+    if(!animId) loop(last);
+  }
+  function replaySequence(){
+    buildScene();
+    overlay.classList.remove('show'); overlay.setAttribute('aria-hidden','true');
+  }
+
+  // download snapshot
+  function downloadPNG(){
+    const tmp = document.createElement('canvas');
+    tmp.width = canvas.width; tmp.height = canvas.height;
+    const sctx = tmp.getContext('2d');
+    sctx.drawImage(canvas, 0, 0);
+    sctx.scale(dpr, dpr);
+    sctx.fillStyle = 'rgba(0,0,0,0.45)';
+    sctx.fillRect(24,24, Math.min(W-48, 640), 110);
+    sctx.fillStyle = '#fff';
+    sctx.font = '20px sans-serif';
+    sctx.fillText('🎉 Feliz Cumpleaños Nicoll 🎉', 40, 64);
+    const data = tmp.toDataURL('image/png');
+    const a = document.createElement('a'); a.href = data; a.download = 'feliz_cumple_nicoll.png'; document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // init
+  function init(){
+    resize();
+    buildScene();
+    last = performance.now();
+    loop(last);
+  }
+
+  startBtn.addEventListener('click', startSequence);
+  replayBtn.addEventListener('click', replaySequence);
+  closeOverlay.addEventListener('click', ()=> { overlay.classList.remove('show'); overlay.setAttribute('aria-hidden','true'); });
+  downloadCard.addEventListener('click', downloadPNG);
+
+  init();
+
+  // icing draw helper
+  function drawIcing(ctx, x, y, w, h){
+    ctx.save();
+    const top = y;
+    ctx.beginPath();
+    ctx.moveTo(x, top+6);
+    const lumps = 6;
+    for(let i=0;i<=lumps;i++){
+      const t = i/lumps;
+      const px = x + t*w;
+      const dip = Math.sin(t*Math.PI*2 + 1.2) * (4 + Math.abs(Math.sin(t*3))*4);
+      ctx.quadraticCurveTo(px - w/lumps*0.5, top + 8 + dip, px, top + 6);
+    }
+    ctx.lineTo(x+w, top + h*0.15);
+    ctx.lineTo(x+w, top);
+    ctx.lineTo(x, top);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+})();
+</script>
+</body>
+</html>
